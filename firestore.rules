@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: resources
+    // Fields:
+    //   - title: string (required, size < 100)
+    //   - description: string (required, size < 500)
+    //   - category: string (required)
+    //   - difficulty: string (required, enum: Beginner, Intermediate, Advanced)
+    //   - tags: list of strings (size < 10, each < 30)
+    //   - content: string (required, size < 5000)
+    //   - imageUrl: string (optional, url)
+    //   - videoUrl: string (optional, url)
+    //   - externalLink: string (optional, url)
+    //   - promptBlocks: list of maps (size < 5)
+    //   - upvotes: number (required, >= 0)
+    //   - bookmarks: number (required, >= 0)
+    //   - copyCount: number (required, >= 0)
+    //   - createdAt: timestamp (required)
+    //   - updatedAt: timestamp (required)
+    //   - authorId: string (required, uid)
+    //
+    // Collection: categories
+    // Fields:
+    //   - name: string (required, size < 50)
+    //   - icon: string (required, size < 50)
+    //   - description: string (required, size < 200)
+    //
+    // Collection: users
+    // Fields:
+    //   - uid: string (required, matches doc id)
+    //   - displayName: string (required, size < 100)
+    //   - email: string (required, email format)
+    //   - photoURL: string (optional, url)
+    //   - role: string (required, enum: admin, user)
+    //   - bookmarkedResources: list of strings (size < 100)
+    //   - upvotedResources: list of strings (size < 100)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "akkenapally.reddy@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidResource(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.description is string && data.description.size() < 500 &&
+             data.category is string &&
+             data.difficulty in ['Beginner', 'Intermediate', 'Advanced'] &&
+             data.content is string && data.content.size() < 5000 &&
+             data.upvotes is number && data.upvotes >= 0 &&
+             data.bookmarks is number && data.bookmarks >= 0 &&
+             data.copyCount is number && data.copyCount >= 0 &&
+             data.authorId is string;
+    }
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() < 100 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['admin', 'user'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /resources/{resourceId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidResource(request.resource.data) && (request.resource.data.authorId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidResource(request.resource.data) && (resource.data.authorId == request.auth.uid || isAdmin() || 
+        // Allow anyone to update upvotes/bookmarks/copyCount if they are the only fields changing
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['upvotes', 'bookmarks', 'copyCount']));
+      allow delete: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && isOwner(userId) && request.resource.data.role == 'user';
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && isOwner(userId) && 
+        (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+  }
+}
