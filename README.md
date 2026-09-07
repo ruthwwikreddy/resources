@@ -1,5 +1,7 @@
 <div align="center">
+  
 # ResourceHub
+
 **An open-source, curated knowledge repository for developers and learners.**
 A streamlined platform for organizing, discovering, and sharing high-value technical resources, tutorials, and documentation.
 [Source](https://github.com/ruthwwikreddy/resources) · Built by [Ruthwik Reddy](https://www.ruthwikreddy.live/)
